@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AvaCapo example</title>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #202020;
+        color: #88ccff;
+        margin: 0;
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        background-color: #303030;
+        padding: 2rem;
+        border-radius: 10px;
+      }
+
+      input[type="text"] {
+        padding: 0.5rem;
+        border-radius: 5px;
+        border: 1px solid #88ccff;
+        color: #202020;
+        width: 300px;
+      }
+
+      button {
+        padding: 0.5rem 1rem;
+        background-color: #88ccff;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        color: #202020;
+      }
+
+      button.disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+
+      #avatar {
+        width: 500px;
+        height: 500px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+        <div id="avatar"></div>
+        <input
+            type="text"
+            id="textInput"
+            placeholder="Enter text to speak"
+        />
+        <button id="speakButton">Speak</button>
+    </div>
+
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js/+esm",
+            "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+          }
+        }
+    </script>
+
+    <script type="module">
+      import { AvaCapoTalkingHead } from "./modules/avaCapoSdk.mjs";
+
+      const ttsProxyGenerateEndpoint = "http://localhost:3000/proxy/tts/generate";
+      const ttsProxyProcessEndpoint = "http://localhost:3000/proxy/tts/process_audio";
+
+      let head;
+
+      async function ttsLoadMP3(text) {
+        try {
+          const speakButton = document.querySelector("#speakButton");
+      
+          // Generate MP3 from text
+          let response = await fetch(`${ttsProxyGenerateEndpoint}?text=${encodeURIComponent(text)}`, {
+            method: "GET"
+          });
+      
+          if (response.ok) {
+            const audioData = await response.blob(); // Get the audio data as a blob
+      
+            // Send request for further processing (e.g., for getting word timings and visemes)
+            response = await fetch(ttsProxyProcessEndpoint, {
+              method: "POST",
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+      
+            if (response.ok) {
+              const json = await response.json();
+      
+              // Convert the audio data to array buffer for further decoding
+              const arraybuffer = await audioData.arrayBuffer();
+              
+              return {
+                json,
+                arraybuffer,
+              };
+            } else {
+              console.log('Error processing audio:', response.status, response.statusText);
+            }
+          } else {
+            console.log('Error generating MP3:', response.status, response.statusText);
+          }
+        } catch (error) {
+          console.log(error);
+        }
+      
+        return null; // Return null if an error occurred
+      }
+      
+
+      document.addEventListener("DOMContentLoaded", async function (e) {
+        const nodeAvatar = document.getElementById("avatar");
+
+        head = new AvaCapoTalkingHead(nodeAvatar, {
+          cameraView: "head"
+        });
+        window.head = head;
+
+
+        const speakButton = document.querySelector("#speakButton");
+        const textInput = document.querySelector("#textInput");
+
+        speakButton.addEventListener("click", () => {
+          const text = textInput.value.trim();
+      
+          if (text && !speakButton.classList.contains("disabled")) {
+            ttsLoadMP3(text).then((result) => {
+              if (result) {
+                head.speakResponses(result.json, result.arraybuffer);
+              }
+            });
+          }
+        });
+
+        await head.showAvatar({
+            url: "./avatars/brunette.glb"
+          });
+          headLoaded();
+      });
+
+      function headLoaded() {
+        // Unlock Web Audio API
+        if (head.audioCtx.state === "suspended") {
+          if ("ontouchstart" in window) {
+            let unlockWebAudioAPI = function () {
+              head.audioCtx.resume().then(() => {
+                document.body.removeEventListener(
+                  "touchstart",
+                  unlockWebAudioAPI
+                );
+                document.body.removeEventListener(
+                  "touchend",
+                  unlockWebAudioAPI
+                );
+              });
+            };
+            document.body.addEventListener(
+              "touchstart",
+              unlockWebAudioAPI,
+              false
+            );
+            document.body.addEventListener(
+              "touchend",
+              unlockWebAudioAPI,
+              false
+            );
+          }
+        }
+      }
+
+    </script>
+  </body>
+</html>
